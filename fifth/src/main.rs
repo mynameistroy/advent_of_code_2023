@@ -1,7 +1,7 @@
 mod input;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::input::{EXAMPLE_INPUT, PUZZLE_INPUT};
 
@@ -94,16 +94,17 @@ fn part_one() {
         let lowest_loc_ref = lowest_loc.clone();
         let thread = thread::spawn(move || {
             for table in thread_lookup_tables.iter() {
-                print!("{value}->");
                 value = table.lookup(value);
             }
-            println!("{value} {}", lowest_loc_ref.load(Ordering::Relaxed));
+
             if value < lowest_loc_ref.load(Ordering::Relaxed) {
                 lowest_loc_ref.store(value, Ordering::Relaxed);
             }
         });
         threads.push(thread);
     }
+
+    println!("Threads: {}", threads.len());
     for thread in threads {
         thread.join().unwrap();
     }
@@ -152,9 +153,9 @@ fn part_two() {
     }
 
     println!("mapping seed to loc...");
-    let lowest_loc = Arc::new(AtomicUsize::new(usize::MAX));
     let mut threads = Vec::new();
     let arc_lookup_tables = Arc::new(lookup_tables);
+    let thread_lowest = Arc::new(Mutex::new(Vec::new()));
 
     let mut seed_iter = seed_data.split_whitespace();
     let seeds_not_done = true;
@@ -165,29 +166,45 @@ fn part_two() {
         } else {
             break;
         }
+
         let seed_count: usize = seed_iter.next().unwrap().parse().unwrap();
-        for s in seed_starting_number..seed_starting_number + seed_count {
-            let mut value = s.clone();
-            let thread_lookup_tables = arc_lookup_tables.clone();
-            let lowest_loc_ref = lowest_loc.clone();
-            let thread = thread::spawn(move || {
+        let s = (seed_starting_number..seed_starting_number + seed_count).collect::<Vec<usize>>();
+        let seed_range = s.clone();
+        let thread_lookup_tables = arc_lookup_tables.clone();
+        let global_lowest = thread_lowest.clone();
+        
+        let thread = thread::spawn(move || {
+            let mut local_lowest = usize::MAX;
+            for seed in seed_range {
+                let mut value = seed;
                 for table in thread_lookup_tables.iter() {
                     //print!("{value}->");
                     value = table.lookup(value);
                 }
-                //println!("{value} {}", lowest_loc_ref.load(Ordering::Relaxed));
-                if value < lowest_loc_ref.load(Ordering::Relaxed) {
-                    lowest_loc_ref.store(value, Ordering::Relaxed);
+                if value < local_lowest {
+                    local_lowest = value;
                 }
-            });
-            threads.push(thread);
-        }
+            }
+            let mut lock = global_lowest.lock().unwrap();
+            lock.push(local_lowest);
+        });
+        threads.push(thread);
+        
     }
-    
+    println!("Threads:{}", threads.len());
     for thread in threads {
         thread.join().unwrap();
     }
-    println!("Value: {}", lowest_loc.load(Ordering::Relaxed));
+
+    let mut lowest = usize::MAX;
+    let lock = thread_lowest.lock().unwrap();
+    for loc in lock.iter()
+    {
+        if *loc < lowest {
+            lowest = *loc;
+        }
+    }
+    println!("Value: {}", lowest);
 }
 
 fn main() {
